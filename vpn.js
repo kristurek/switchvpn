@@ -2,41 +2,88 @@
 
 const GLib = imports.gi.GLib;
 const Gio = imports.gi.Gio;
+const Lang = imports.lang;
 
 class VpnService {
 
     constructor() {}
 
-    findVpn(command) {
+    _asyncExecuteCommand(command) {
+        return GLib.spawn_async(null, ["/bin/bash", "-c", command], null, GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null);
+    }
+
+    _syncExecuteCommand(command) {
+        return GLib.spawn_sync(null, ["/bin/bash", "-c", command], null, GLib.SpawnFlags.SEARCH_PATH, null);
+    }
+
+    _findVpn(command) {
+        global.log('VpnService._findVpn[' + command + ']');
         var vpns = [];
 
-        //let [res, out, err, status] = GLib.spawn_command_line_sync(command);
-        let [res, out, err, exit] = GLib.spawn_sync(null, ["/bin/bash", "-c", command], null, GLib.SpawnFlags.SEARCH_PATH, null);
+        let [res, out, err, exit] = this._syncExecuteCommand(command);
 
-        global.log('VPN [' + out + ']');
+        global.log('VpnService._findVpn[' + out + ']');
         out.toString().split('\n').forEach(function(item, index, array) {
             var fields = item.split(' ').filter(item => item);
 
-            if (fields[0] && fields[1])
-                vpns.push(new VpnItem(fields[0], fields[1]));
+            if (fields[0] && fields[1] && fields[2]) {
+                if (fields[2] == '--')
+                    vpns.push(new VpnItem(fields[0], fields[1], false));
+                else
+                    vpns.push(new VpnItem(fields[0], fields[1], true));
+            }
+        });
+
+        vpns.forEach(function(entry) {
+            global.log('VpnService._findVpn[' + entry.print() + ']');
         });
 
         return vpns;
     }
 
     findAllVpn() {
-        return this.findVpn('nmcli -f NAME,TYPE,UUID,DEVICE connection | awk \'$2 == \"vpn\" {print $1,$3,$4}\'');
+        return this._findVpn('nmcli -f NAME,TYPE,UUID,DEVICE connection | awk \'$2 == \"vpn\" {print $1,$3,$4}\' | sort -nk1');
     }
 
     findActiveVpn() {
-        return this.findVpn('./list-active-vpn.sh');
+        return this._findVpn('nmcli -f NAME,TYPE,UUID,DEVICE connection | awk \'$4!=\"--\" &&  $2 == \"vpn\" {print $1,$3,$4}\'');
+    }
+
+    _upDownVpn(vpnItem, onFailFunction, type) {
+        let [success, pid] = this._asyncExecuteCommand('nmcli connection ' + type + ' ' + vpnItem.uuid);
+        global.log('VpnService._upDownVpn[' + success + '][' + pid + ']');
+
+        if (success && pid != 0) {
+            global.log('VpnService._upDownVpn[success create proccess]');
+            GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, function(pid, status) {
+                GLib.spawn_close_pid(pid);
+
+                global.log('VpnService._upDownVpn[process completed][' + status + ']');
+                if (onFailFunction != undefined && status != '0')
+                    onFailFunction(vpnItem);
+            });
+        } else
+            global.log('VpnService._upDownVpn[faild create proccess]');
+    }
+
+    upVpn(vpnItem, onFailFunction) {
+        this._upDownVpn(vpnItem, onFailFunction, 'up');
+    }
+
+    downVpn(vpnItem, onFailFunction) {
+        this._upDownVpn(vpnItem, onFailFunction, 'down');
     }
 }
 
 class VpnItem {
-    constructor(nameVpn, uuidVpn) {
+    constructor(nameVpn, uuidVpn, activeVpn) {
         this.nameVpn = nameVpn;
         this.uuidVpn = uuidVpn;
+        this.activeVpn = activeVpn;
+    }
+
+    print() {
+        return 'VpnItem[' + this.nameVpn + '][' + this.uuidVpn + '][' + this.active + ']';
     }
 
     get name() {
@@ -45,6 +92,10 @@ class VpnItem {
     get uuid() {
         return this.uuidVpn;
     }
+    get active() {
+        return this.activeVpn;
+    }
+
 
     set name(nameVpn) {
         this.nameVpn = nameVpn;
@@ -52,10 +103,7 @@ class VpnItem {
     set uuid(uuidVpn) {
         this.uuidVpn = uuidVpn;
     }
+    set active(activeVpn) {
+        this.activeVpn = activeVpn;
+    }
 }
-/*
-var service  = new VpnService();
-var vpns = service.findAllVpn();
-for(var vpn of vpns)
-  print(vpn.name + " === "+ vpn.uuid);
-*/
