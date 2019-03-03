@@ -17,12 +17,12 @@ class VpnService {
     }
 
     _findVpn(command) {
-        global.log('VpnService._findVpn[' + command + ']');
+        global.log('SwitchVpn.VpnService._findVpn[' + command + ']');
         var vpns = [];
 
         let [res, out, err, exit] = this._syncExecuteCommand(command);
 
-        global.log('VpnService._findVpn[' + out + ']');
+        global.log('SwitchVpn.VpnService._findVpn[' + out + ']');
         out.toString().split('\n').forEach(function(item, index, array) {
             var fields = item.split(' ').filter(item => item);
 
@@ -35,7 +35,7 @@ class VpnService {
         });
 
         vpns.forEach(function(entry) {
-            global.log('VpnService._findVpn[' + entry.print() + ']');
+            global.log('SwitchVpn.VpnService._findVpn[' + entry.print() + ']');
         });
 
         return vpns;
@@ -51,19 +51,19 @@ class VpnService {
 
     _upDownVpn(vpnItem, onFailFunction, type) {
         let [success, pid] = this._asyncExecuteCommand('nmcli connection ' + type + ' ' + vpnItem.uuid);
-        global.log('VpnService._upDownVpn[' + success + '][' + pid + ']');
+        global.log('SwitchVpn.VpnService._upDownVpn[' + success + '][' + pid + ']');
 
         if (success && pid != 0) {
-            global.log('VpnService._upDownVpn[success create proccess]');
+            global.log('SwitchVpn.VpnService._upDownVpn[success create proccess]');
             GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, function(pid, status) {
                 GLib.spawn_close_pid(pid);
 
-                global.log('VpnService._upDownVpn[process completed][' + status + ']');
+                global.log('SwitchVpn.VpnService._upDownVpn[process completed][' + status + ']');
                 if (onFailFunction != undefined && status != '0')
                     onFailFunction(vpnItem);
             });
         } else
-            global.log('VpnService._upDownVpn[faild create proccess]');
+            global.log('SwitchVpn.VpnService._upDownVpn[faild create proccess]');
     }
 
     upVpn(vpnItem, onFailFunction) {

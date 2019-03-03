@@ -20,12 +20,11 @@ class CustomPopupSwitchMenuItem extends PopupMenu.PopupSwitchMenuItem {
     }
 
     activate(event) {
-        if (this._switch.actor.mapped) {
+        if (this._switch.actor.mapped)
             this.toggle();
-        }
     }
 
-    item() {
+    getItem() {
         return this.vpnItem;
     }
 }
@@ -54,27 +53,25 @@ const PopupMenuVpn = new Lang.Class({
 
         this.actor.add_child(box);
 
-        this.refresh();
+        this._refresh();
     },
 
-    updateItems: function() {
+    _updateMenuItems: function() {
         this.menu.removeAll();
 
         const service = new Vpn.VpnService();
         let items = service.findAllVpn();
 
         if (items)
-            for (item of items) {
-                global.log(item.print());
+            for (let item of items) {
                 let menuItem = new CustomPopupSwitchMenuItem(item);
                 menuItem.setToggleState(item.active);
                 menuItem.connect('toggled', Lang.bind(this, function(object, value) {
-                    global.log("SwitchVpn[" + object.item().print() + "][" + value + "]");
-                    if (value) {
-                        service.upVpn(object.item(), this.onFailVpnAction);
-                    } else {
-                        service.downVpn(object.item(), this.onFailVpnAction);
-                    }
+                    global.log('SwitchVpn.PopupMenuVpn._updateMenuItems[' + object.getItem().print() + '][' + value + ']');
+                    if (value)
+                        service.upVpn(object.getItem(), this.onFailVpnAction);
+                    else
+                        service.downVpn(object.getItem(), this.onFailVpnAction);
                 }));
 
                 this.menu.addMenuItem(menuItem);
@@ -82,23 +79,23 @@ const PopupMenuVpn = new Lang.Class({
     },
 
     onFailVpnAction: function(item) {
-        global.log('SwitchVpn.extension.onFailVpnAction[' + item.print() + ']');
+        global.log('SwitchVpn.PopupMenuVpn.onFailVpnAction[' + item.print() + ']');
 
-        app.menu._getMenuItems().find(function(entry) {
-            if (entry.item().uuid == item.uuid)
-                entry.setToggleState(false);
+        app.menu._getMenuItems().find(function(menuItem) {
+            if (menuItem.getItem().uuid == item.uuid)
+                menuItem.setToggleState(false);
         });
     },
 
-    refresh: function() {
-        this.updateItems();
+    _refresh: function() {
+        this._updateMenuItems();
 
         if (this._timeout) {
             Mainloop.source_remove(this._timeout);
             this._timeout = null;
         }
 
-        this._timeout = Mainloop.timeout_add_seconds(3, Lang.bind(this, this.refresh));
+        this._timeout = Mainloop.timeout_add_seconds(3, Lang.bind(this, this._refresh));
     },
 
     destroy: function() {
