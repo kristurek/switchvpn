@@ -1,1 +1,8 @@
-{"name": "SwitchVPN", "description": "Fast switching VPN", "uuid": "switchvpn@kris.turek.85.gmail.com", "shell-version": ["3.28.3"]}
+{
+	"name": "SwitchVPN",
+	"description": "Fast switching VPN",
+	"uuid": "switchvpn@kris.turek.85.gmail.com",
+	"shell-version": [
+		"3.28.3"
+	]
+}

@@ -1,3 +1,5 @@
+'use strict'
+
 const St = imports.gi.St;
 const Clutter = imports.gi.Clutter;
 const Main = imports.ui.main;
@@ -7,16 +9,16 @@ const Lang = imports.lang;
 
 const GLib = imports.gi.GLib;
 const Gio = imports.gi.Gio;
+const NM = imports.gi.NM;
 const Mainloop = imports.mainloop;
 
-const Me = imports.misc.extensionUtils.getCurrentExtension();
-const Vpn = Me.imports.vpn;
+class NMVpnItem extends PopupMenu.PopupSwitchMenuItem {
 
-class CustomPopupSwitchMenuItem extends PopupMenu.PopupSwitchMenuItem {
+    constructor(connection) {
+        super(connection.get_id());
 
-    constructor(vpnItem) {
-        super(vpnItem.name);
-        this.vpnItem = vpnItem;
+        this._connection = connection;
+        this._activeConnection = null;
     }
 
     activate(event) {
@@ -24,18 +26,32 @@ class CustomPopupSwitchMenuItem extends PopupMenu.PopupSwitchMenuItem {
             this.toggle();
     }
 
-    getItem() {
-        return this.vpnItem;
+    _isActiveConnection() {
+        if (!this._activeConnection)
+            return false;
+
+        return this._activeConnection.state <= NM.ActiveConnectionState.ACTIVATED;
+    }
+
+    sync(activeConnection) {
+        this._activeConnection = activeConnection;
+        this.setToggleState(this._isActiveConnection());
+    }
+
+    getActiveConnection() {
+        return this._activeConnection;
+    }
+
+    getConnection() {
+        return this._connection;
     }
 }
 
-const PopupMenuVpn = new Lang.Class({
-    Name: 'PopupMenuVpn',
-    Extends: PanelMenu.Button,
+class PopupMenuVpn extends PanelMenu.Button {
 
-    _init: function() {
+    constructor() {
+        super(1, 'PopupMenuVpn', false);
 
-        this.parent(1, 'PopupMenuVpn', false);
         let box = new St.BoxLayout();
         let icon = new St.Icon({
             icon_name: 'network-vpn-symbolic',
@@ -53,62 +69,102 @@ const PopupMenuVpn = new Lang.Class({
 
         this.actor.add_child(box);
 
-        this._refresh();
-    },
+        this._connectionItems = new Map();
 
-    _updateMenuItems: function() {
-        this.menu.removeAll();
+        this._client = NM.Client.new(null);
+        this._client.connect('notify::active-connections', this._sync.bind(this));
+        this._client.connect('connection-added', this._sync.bind(this));
+        this._client.connect('connection-removed', this._sync.bind(this));
 
-        const service = new Vpn.VpnService();
-        let items = service.findAllVpn();
+        this._sync();
+    }
 
-        if (items)
-            for (let item of items) {
-                let menuItem = new CustomPopupSwitchMenuItem(item);
-                menuItem.setToggleState(item.active);
-                menuItem.connect('toggled', Lang.bind(this, function(object, value) {
-                    global.log('SwitchVpn.PopupMenuVpn._updateMenuItems[' + object.getItem().print() + '][' + value + ']');
-                    if (value)
-                        service.upVpn(object.getItem(), this.onFailVpnAction);
-                    else
-                        service.downVpn(object.getItem(), this.onFailVpnAction);
-                }));
+    _sync() {
+        let currentConnectionItems = new Array(...this._connectionItems).map(entries => entries[1]);
+        let currentConnections = currentConnectionItems.map(x => x.getConnection());
 
-                this.menu.addMenuItem(menuItem);
-            }
-    },
-
-    onFailVpnAction: function(item) {
-        global.log('SwitchVpn.PopupMenuVpn.onFailVpnAction[' + item.print() + ']');
-
-        app.menu._getMenuItems().find(function(menuItem) {
-            if (menuItem.getItem().uuid == item.uuid)
-                menuItem.setToggleState(false);
+        let newConnections = this._client.get_connections().filter(connection => {
+            return connection.get_setting_by_name(NM.SETTING_CONNECTION_SETTING_NAME).type == NM.SETTING_VPN_SETTING_NAME;
         });
-    },
 
-    _refresh: function() {
-        this._updateMenuItems();
+        let connectionsToUpdate = newConnections.filter(x => currentConnections.includes(x));
+        this._syncConnectionItems(connectionsToUpdate);
 
-        if (this._timeout) {
-            Mainloop.source_remove(this._timeout);
-            this._timeout = null;
+        let connectionsToCreate = newConnections.filter(x => !currentConnections.includes(x));
+        this._createConnectionItems(connectionsToCreate);
+
+        let connectionsToRemove = currentConnections.filter(x => !newConnections.includes(x));
+        this._removeConnectionItems(connectionsToRemove);
+    }
+
+    _syncConnectionItems(connections) {
+        if (connections) {
+            let activeConnectionsMap = new Map();
+            let activeConnections = this._client.get_active_connections() || [];
+            activeConnections.forEach((activeConnection) => {
+                activeConnectionsMap.set(activeConnection.get_uuid(), activeConnection);
+            });
+
+            connections.forEach(connection => {
+                let activeConnection = activeConnectionsMap.get(connection.get_uuid());
+                this._connectionItems.get(connection.get_uuid()).sync(activeConnection);
+            });
+        }
+    }
+
+    _createConnectionItems(connections) {
+        if (connections) {
+            connections.forEach(connection => {
+                let nmVpnItem = new NMVpnItem(connection);
+                nmVpnItem.connect('toggled', this._toogle.bind(this));
+                this._connectionItems.set(connection.get_uuid(), nmVpnItem);
+                this.menu.addMenuItem(nmVpnItem);
+            });
+
+            this._syncConnectionItems(connections);
+        }
+    }
+
+    _removeConnectionItems(connections) {
+        if (connections) {
+            connections.forEach(connection => {
+                this._connectionItems.get(connection.get_uuid()).destroy();
+                this._connectionItems.delete(connection.get_uuid());
+            });
+        }
+    }
+
+    _toogle(object, value) {
+        try {
+            if (value)
+                this._client.activate_connection_async(object.getConnection(), null, null, null, null);
+            else {
+                this._client.deactivate_connection(object.getActiveConnection(), null);
+                object.sync(null);
+            }
+        } catch (e) {
+            global.log('Exception [' + e + ']');
+            object.sync(null);
         }
 
-        this._timeout = Mainloop.timeout_add_seconds(3, Lang.bind(this, this._refresh));
-    },
+        let currentConnectionItems = new Array(...this._connectionItems).map(entries => entries[1]);
+        let currentConnections = currentConnectionItems.map(x => x.getConnection());
+        this._syncConnectionItems(currentConnections)
+    }
 
-    destroy: function() {
+    destroy() {
         this.parent();
     }
-});
+}
 
 let app;
 
-function init() {}
+function init() {
+
+}
 
 function enable() {
-    app = new PopupMenuVpn;
+    app = new PopupMenuVpn();
 
     Main.panel.addToStatusArea('PopupMenuVpn', app, 0, 'right');
 }

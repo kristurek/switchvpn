@@ -11,3 +11,4 @@ nmcli -f NAME,TYPE,UUID,DEVICE connection | awk '$2 == "vpn" {print $1,$3,$4}' |
 
 #Logs with or without sudo
 #sudo journalctl -r /usr/bin/gnome-shell
+#sudo journalctl -f /usr/bin/gnome-shell
