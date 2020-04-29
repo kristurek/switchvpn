@@ -14,7 +14,8 @@ let NMVpnItem = GObject.registerClass(
     class NMVpnItem extends PopupMenu.PopupSwitchMenuItem {
 
         _init(connection) {
-            super._init(connection.get_id());
+            log('_init ' + connection.get_id());
+            super._init(connection.get_id(), true, null);
 
             this._connection = connection;
             this._activeConnection = null;

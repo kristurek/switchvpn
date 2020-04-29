@@ -3,6 +3,6 @@
 	"description": "Fast switching VPN",
 	"uuid": "switchvpn@kris.turek.85.gmail.com",
 	"shell-version": [
-		"3.34.1"
+		"3.36.1"
 	]
 }
